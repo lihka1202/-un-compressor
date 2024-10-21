@@ -1,4 +1,7 @@
+use std::io::BufReader;
 use clap::Parser;
+use compressor::encode;
+
 #[derive(Parser, Debug)]
 #[command(version = "0.0.1", about = "This program can compress a file.", long_about = None)]
 struct Args {
@@ -15,9 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("This is the current directory: {}", std::env::current_dir().unwrap().display().to_string());
     println!("Source: {}", args.source);
     println!("Destination: {}", args.destination);
-
-    let metadata = std::fs::metadata(String::from("input/") + &args.source)?;
-    println!("Length before compression: {:?}", metadata.len());
-
+    encode(args.source, args.destination);
     Ok(())
 }
