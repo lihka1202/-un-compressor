@@ -1,0 +1,6 @@
+# executables
+target
+
+# idea related stuff
+.idea
+Cargo.lock
