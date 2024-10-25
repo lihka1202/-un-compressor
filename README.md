@@ -82,6 +82,59 @@ to do myself in order to perform compression.
 
 So that is what I'm going to do.
 
+### Huffman Coding
+Huffman coding is a variable length encoding format. It basically follows an optimal merge pattern
+and greedily ensures that each symbol is represented by the least amount of bits with respect to how often it appears
+in the source.
+
+It basically constructs something called a huffman tree based on an optimal merge pattern on the frequency of each symbol
+and it guarantees 1 single thing: **Symbols with higher frequencies are closer to the root than symbols with smaller frequencies**.
+
+Its a pretty cool idea, and fairly simple to implement (if we were doing this in python).
+
+Since this is being done in rust, there are many extra precautions that need to be taken. I'll also be explaining the code
+and some additional data structures which we would need a little more explaination (because rust).
+
+#### HuffmanNode
+This is what I envisioned the huffman Node to look earlier on
+```rust
+struct HuffmanNode {
+    symbol: Option<u8>,
+    frequency: u32,
+    left: Option<Rc<RefCell<HuffmanNode>>>,
+    right: Option<Rc<RefCell<HuffmanNode>>>,
+}
+```
+- `symbol`
+  - This is an `Option<>`, that is it could be a `Some()` or `None()`. It holds the byte that is being encoded (hence u8).
+  - This is optional mainly because **internal nodes in the huffman tree do not store any symbol values, only leaves do that**.
+  - So if the node is an internal node symbol would be `None()` else it would be `Some()`.
+- `frequency`
+  - Simple enough, this is the number of times each character appears.
+  - Can be `u32` or can also be `usize`.
+- `left` and `right`
+  - This is where stuff gets very interesting. It's an `Option<>` mainly because each node may or may not have right or left children.
+  - `Rc<T>` is called *Reference Counted*. Rust's ownership and borrowing principles are very clear, each variable owns a value and ensures no data races.
+  - Strict ownership and borrowing allow Rust to deallocate memory whenever the owner variable goes out of scope, but what if there are cases where the variable needs to be shared?
+  - Once way is to spam `.clone()` in Rust, but this is not very performant and causes a memory bottleneck for larger datastructures like trees and such. So what now?
+  - Rc<T> is used when we need shared ownership of some value. It is a smart pointer that allows multiple owners of the same value by keeping track of how many references point to the value. When the reference count drops to zero, the value is deallocated.
+  - Normally trees use `Rc<T>` in the case a single child is shared between many parents.
+  - Similarly `RefCell<T>` is interior mutability. By default, in order to be thread safe, rust ensures that everything is immutable by default .
+  - In order to make these shared references mutable, we use `RefCell<T>`.
+
+But once we study the structure of an example `Huffman Tree`, it becomes apparent that each root only has one child, and using shared reference or interior mutability would be 
+quite overkill (complexity, safety and performance wise).
+
+Hence it can be adjusted to the following instead:
+```rust
+struct HuffmanNode {
+    symbol: Option<u8>,
+    frequency: u32,
+    left: Option<Box<HuffmanNode>>,
+    right: Option<Box<HuffmanNode>>,
+}
+```
+
 
 
 
