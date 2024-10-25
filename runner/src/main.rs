@@ -18,6 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("This is the current directory: {}", std::env::current_dir().unwrap().display().to_string());
     println!("Source: {}", args.source);
     println!("Destination: {}", args.destination);
-    encode(args.source, args.destination);
+    encode(String::from("input/") + &args.source, args.destination);
     Ok(())
 }
