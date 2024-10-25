@@ -108,8 +108,7 @@ frequencies**.
 Its a pretty cool idea, and fairly simple to implement (if we were doing this in python).
 
 Since this is being done in rust, there are many extra precautions that need to be taken. I'll also be explaining the
-code
-and some additional data structures which we would need a little more explaination (because rust).
+code and some additional data structures which we would need a little more explanation (because rust).
 
 #### HuffmanNode
 
@@ -212,6 +211,30 @@ fn new_node(symbol: Option<u8>, frequency: u32) -> Box<HuffmanNode> {
 
 Initially it's all going to be leaf nodes, but as we construct the tree the internal nodes with the merged counts of 2
 symbols will start having no symbols.
+
+#### Counting frequencies for each character
+
+The whole idea is to count the frequency of how often each byte appears. The will be helpful in populating the binary
+heap that we would be using to perform an optimal merge.
+
+The function looks a bit like this:
+
+```rust
+fn count_frequency(data: &[u8]) -> HashMap<u8, u32> {
+    let mut freq_map: HashMap<u8, u32> = HashMap::new();
+    for &datum in data {
+        *freq_map.entry(datum).or_insert(0) += 1;
+    }
+    freq_map
+}
+```
+
+Some key pointers:
+
+- `.entry()` will get the key if it exists, if it doesn't it returns an `None()`.
+- This is caught by `.or_insert()` which allows us to chain this, such that it will insert 0 for that key in the
+  hashmap, and then add 1 to mark the current occurrence.
+- We need to dereference as `.or_insert()` returns a reference to the key and not the key itself.
 
 
 
