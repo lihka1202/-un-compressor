@@ -166,7 +166,8 @@ struct HuffmanNode {
 
 One of the pivotal data structures used to find the optimal merge pattern (greedy merge) is a min heap. However, since
 we need place
-`HuffmanNode` into the minHeap, and the nodes need to be ordered based on the nodes, we might need to define some custom
+`HuffmanNode` into the min_heap, and the nodes need to be ordered based on the nodes, we might need to define some
+custom
 comparators.
 Quite similar to how one might do this in C/C++ or Java. In rust, we can do this by re implementing relevant functions
 for a trait.
@@ -235,6 +236,37 @@ Some key pointers:
 - This is caught by `.or_insert()` which allows us to chain this, such that it will insert 0 for that key in the
   hashmap, and then add 1 to mark the current occurrence.
 - We need to dereference as `.or_insert()` returns a reference to the key and not the key itself.
+
+#### Building the Huffman Tree
+
+The main idea is to build the huffman tree. This is what the code could look like:
+
+```rust
+fn build_huffman_tree(freq_map: HashMap<u8, u32>) -> Option<Box<HuffmanNode>> {
+    let mut min_heap = BinaryHeap::new();
+    for (symbol, frequency) in freq_map {
+        min_heap.push(new_node(Some(symbol), frequency));
+    }
+
+    while min_heap.len() > 1 {
+        let left = min_heap.pop().unwrap();
+        let right = min_heap.pop().unwrap();
+
+        let mut new_parent = new_node(None, left.frequency + right.frequency);
+        new_parent.left = Some(left);
+        new_parent.right = Some(right);
+        min_heap.push(new_parent);
+    }
+
+    min_heap.pop()
+}
+```
+
+- So we first initialize a `BinaryHeap`
+- Go through the frequency_map and push a tuple of the format `(symbol, frequency)`.
+- We just pop the 2 smallest frequencies, sum them up, and insert a new node into the huffman tree.
+- At the end, we just pop the final root node out.
+
 
 
 
