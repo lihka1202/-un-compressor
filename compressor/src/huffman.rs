@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 
 #[derive(Debug, Eq, PartialEq)]
 struct HuffmanNode {
@@ -31,4 +31,23 @@ fn count_frequency(data: &[u8]) -> HashMap<u8, u32> {
         *freq_map.entry(datum).or_insert(0) += 1;
     }
     freq_map
+}
+
+fn build_huffman_tree(freq_map: HashMap<u8, u32>) -> Option<Box<HuffmanNode>> {
+    let mut min_heap = BinaryHeap::new();
+    for (symbol, frequency) in freq_map {
+        min_heap.push(new_node(Some(symbol), frequency));
+    }
+
+    while min_heap.len() > 1 {
+        let left = min_heap.pop().unwrap();
+        let right = min_heap.pop().unwrap();
+
+        let mut new_parent = new_node(None, left.frequency + right.frequency);
+        new_parent.left = Some(left);
+        new_parent.right = Some(right);
+        min_heap.push(new_parent);
+    }
+
+    min_heap.pop()
 }
