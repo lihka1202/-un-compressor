@@ -35,6 +35,7 @@ But for the most bit, I'll test the same file or so on both and look at potentia
 
 As of now, a `GzEncoder` and `ZLibEncoder` were both tested on a `6mb.pdf`.
 These are the results obtained:
+
 ```shell
 Length before compression: 6504095
 Length after compression (GzEncoder): 27
@@ -42,46 +43,229 @@ Length after compression (ZLibEncoder): 15
 ```
 
 For context this is the code that was used to test them
+
 ```rust
-let metadata = std::fs::metadata(String::from("input/") + &source).unwrap();
+let metadata = std::fs::metadata(String::from("input/") + & source).unwrap();
 println!("Length before compression: {:?}", metadata.len());
-let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+let mut encoder = GzEncoder::new(Vec::new(), Compression::default ());
 encoder.write_all(source.as_bytes()).unwrap();
 let compressed = encoder.finish().unwrap();
 println!("Length after compression (GzEncoder): {:?}", compressed.len());
 
 // Write the ZLibEncoder code
-let mut zlib_encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+let mut zlib_encoder = ZlibEncoder::new(Vec::new(), Compression::default ());
 zlib_encoder.write_all(source.as_bytes()).unwrap();
 let compressed_zlib_encoder = zlib_encoder.finish().unwrap();
 println!("Length after compression (ZLibEncoder): {:?}", compressed_zlib_encoder.len());
 ```
+
 The ZLibEncoder does better, and this perhaps makes a little more sense once we try to understand
 how each of these encoders are implemented internally. Below is some trivia about the rough structure
 of each of these encoders and some of their design features which make them stand out.
 
 ### zlib
+
 Zlib is a free and OSS software mainly designed for compression and decompression of files.
-It's lossless, with pretty good compression ranges. The whole idea revolves around using `Huffman Coding` first in order to
+It's lossless, with pretty good compression ranges. The whole idea revolves around using `Huffman Coding` first in order
+to
 generate a low entropy tree and then runs it by LZ277 to match the text and maintain something like a sliding window.
 
-The main downside of this, apart from the complexity of implementation is that it doesnt contain a checksum in order to 
+The main downside of this, apart from the complexity of implementation is that it doesnt contain a checksum in order to
 maintain the integrity of data. But perhaps that's why it is significantly easier to implement ahead of `gz`.
 
 This is also why the length after compression is slightly smaller (6mb is not much of a measure but its great for now)
+
 ### gz
-Another popular lossless data compression method. Mainly used on standalone files and is used in linux and unix based systems.
-So naturally, if the pdf were larger **gzip would outperform zlib in terms of compression ratio**. Ideally gzip compresses file
-with the intention of sending them across the internet (either as packets in IP or dataframes in ethernet), but this is more suited for
+
+Another popular lossless data compression method. Mainly used on standalone files and is used in linux and unix based
+systems.
+So naturally, if the pdf were larger **gzip would outperform zlib in terms of compression ratio**. Ideally gzip
+compresses file
+with the intention of sending them across the internet (either as packets in IP or dataframes in ethernet), but this is
+more suited for
 network bandwidth optimization.
 
-Either way, one thing that I've noticed in either case is that there are 2 data structure implementations that I would need
+Either way, one thing that I've noticed in either case is that there are 2 data structure implementations that I would
+need
 to do myself in order to perform compression.
+
 1. Huffman Coding (Huffman Tree, Node , etc)
 2. LZ277 (sliding window, Look Ahead Buffer, etc)
 
 So that is what I'm going to do.
 
+### Huffman Coding
+
+Huffman coding is a variable length encoding format. It basically follows an optimal merge pattern
+and greedily ensures that each symbol is represented by the least amount of bits with respect to how often it appears
+in the source.
+
+It basically constructs something called a huffman tree based on an optimal merge pattern on the frequency of each
+symbol
+and it guarantees 1 single thing: **Symbols with higher frequencies are closer to the root than symbols with smaller
+frequencies**.
+
+Its a pretty cool idea, and fairly simple to implement (if we were doing this in python).
+
+Since this is being done in rust, there are many extra precautions that need to be taken. I'll also be explaining the
+code and some additional data structures which we would need a little more explanation (because rust).
+
+#### HuffmanNode
+
+This is what I envisioned the huffman Node to look earlier on
+
+```rust
+struct HuffmanNode {
+    symbol: Option<u8>,
+    frequency: u32,
+    left: Option<Rc<RefCell<HuffmanNode>>>,
+    right: Option<Rc<RefCell<HuffmanNode>>>,
+}
+```
+
+- `symbol`
+    - This is an `Option<>`, that is it could be a `Some()` or `None()`. It holds the byte that is being encoded (hence
+      u8).
+    - This is optional mainly because **internal nodes in the huffman tree do not store any symbol values, only leaves
+      do that**.
+    - So if the node is an internal node symbol would be `None()` else it would be `Some()`.
+- `frequency`
+    - Simple enough, this is the number of times each character appears.
+    - Can be `u32` or can also be `usize`.
+- `left` and `right`
+    - This is where stuff gets very interesting. It's an `Option<>` mainly because each node may or may not have right
+      or left children.
+    - `Rc<T>` is called *Reference Counted*. Rust's ownership and borrowing principles are very clear, each variable
+      owns a value and ensures no data races.
+    - Strict ownership and borrowing allow Rust to deallocate memory whenever the owner variable goes out of scope, but
+      what if there are cases where the variable needs to be shared?
+    - Once way is to spam `.clone()` in Rust, but this is not very performant and causes a memory bottleneck for larger
+      datastructures like trees and such. So what now?
+    - Rc<T> is used when we need shared ownership of some value. It is a smart pointer that allows multiple owners of
+      the same value by keeping track of how many references point to the value. When the reference count drops to zero,
+      the value is deallocated.
+    - Normally trees use `Rc<T>` in the case a single child is shared between many parents.
+    - Similarly `RefCell<T>` is interior mutability. By default, in order to be thread safe, rust ensures that
+      everything is immutable by default .
+    - In order to make these shared references mutable, we use `RefCell<T>`.
+
+But once we study the structure of an example `Huffman Tree`, it becomes apparent that each root only has one child, and
+using shared reference or interior mutability would be
+quite overkill (complexity, safety and performance wise).
+
+Hence it can be adjusted to the following instead:
+
+```rust
+struct HuffmanNode {
+    symbol: Option<u8>,
+    frequency: u32,
+    left: Option<Box<HuffmanNode>>,
+    right: Option<Box<HuffmanNode>>,
+}
+```
+
+One of the pivotal data structures used to find the optimal merge pattern (greedy merge) is a min heap. However, since
+we need place
+`HuffmanNode` into the min_heap, and the nodes need to be ordered based on the nodes, we might need to define some
+custom
+comparators.
+Quite similar to how one might do this in C/C++ or Java. In rust, we can do this by re implementing relevant functions
+for a trait.
+
+#### Reimplement `Ord` and `PartialOrd` for Huffman Node
+
+`Ord` is more for total ordering for every pair in the binary heap, `PartialOrd` is more in cases with `Option<>` where
+the comparison between
+`Some()` and `None()` could be undefined.
+> Note that you need to actually implement `PartialOrd` first in order to ensure that it fulfils the super trait for
+`Ord`.
+
+This can be done in the following way:
+
+```rust
+impl PartialOrd for HuffmanNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HuffmanNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.frequency.cmp(&self.frequency)
+    }
+}
+```
+
+Its important to not that in order to implement `PartialOrd` and `Ord`, the compiler needs to understand if 2
+HuffmanNode values can be considered equal or not.
+This is done by ensuring that `HuffmanNode` can derive `Eq` and `PartialEq` also.
+
+#### Constructor
+
+A pretty basic constructor to get things started
+
+```rust
+fn new_node(symbol: Option<u8>, frequency: u32) -> Box<HuffmanNode> {
+    Box::new(HuffmanNode { symbol, frequency, left: None, right: None })
+}
+```
+
+Initially it's all going to be leaf nodes, but as we construct the tree the internal nodes with the merged counts of 2
+symbols will start having no symbols.
+
+#### Counting frequencies for each character
+
+The whole idea is to count the frequency of how often each byte appears. The will be helpful in populating the binary
+heap that we would be using to perform an optimal merge.
+
+The function looks a bit like this:
+
+```rust
+fn count_frequency(data: &[u8]) -> HashMap<u8, u32> {
+    let mut freq_map: HashMap<u8, u32> = HashMap::new();
+    for &datum in data {
+        *freq_map.entry(datum).or_insert(0) += 1;
+    }
+    freq_map
+}
+```
+
+Some key pointers:
+
+- `.entry()` will get the key if it exists, if it doesn't it returns an `None()`.
+- This is caught by `.or_insert()` which allows us to chain this, such that it will insert 0 for that key in the
+  hashmap, and then add 1 to mark the current occurrence.
+- We need to dereference as `.or_insert()` returns a reference to the key and not the key itself.
+
+#### Building the Huffman Tree
+
+The main idea is to build the huffman tree. This is what the code could look like:
+
+```rust
+fn build_huffman_tree(freq_map: HashMap<u8, u32>) -> Option<Box<HuffmanNode>> {
+    let mut min_heap = BinaryHeap::new();
+    for (symbol, frequency) in freq_map {
+        min_heap.push(new_node(Some(symbol), frequency));
+    }
+
+    while min_heap.len() > 1 {
+        let left = min_heap.pop().unwrap();
+        let right = min_heap.pop().unwrap();
+
+        let mut new_parent = new_node(None, left.frequency + right.frequency);
+        new_parent.left = Some(left);
+        new_parent.right = Some(right);
+        min_heap.push(new_parent);
+    }
+
+    min_heap.pop()
+}
+```
+
+- So we first initialize a `BinaryHeap`
+- Go through the frequency_map and push a tuple of the format `(symbol, frequency)`.
+- We just pop the 2 smallest frequencies, sum them up, and insert a new node into the huffman tree.
+- At the end, we just pop the final root node out.
 
 
 
